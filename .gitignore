@@ -2,3 +2,5 @@ era5_land_berlin/
 *csv
 *xlsx
 my_key.py
+__pycache__/
+*.py[cod]
