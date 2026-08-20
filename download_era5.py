@@ -1,100 +1,96 @@
-from pathlib import Path
 import calendar
 import time
 
 import cdsapi
 
-
-# --------------------------------------------------
-# SETTINGS
-# --------------------------------------------------
-
-START_YEAR = 2015
-END_YEAR = 2024
-
-OUTPUT_DIR = Path("era5_land_berlin")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
-DATASET = "reanalysis-era5-land"
-
-VARIABLES = [
-    "2m_temperature",
-    "2m_dewpoint_temperature",
-    "10m_u_component_of_wind",
-    "10m_v_component_of_wind",
-    "total_precipitation",
-    "surface_solar_radiation_downwards",
-    "surface_pressure",
-]
-
-TIMES = [f"{hour:02d}:00" for hour in range(24)]
-
-# Order: North, West, South, East
-AREA = [
-    52.66,
-    13.25,
-    52.40,
-    13.51,
-]
+from cds_credentials import CDS_API_KEY
+from config import (
+    AREA,
+    CDS_API_URL,
+    CDS_DATASET,
+    CDS_VARIABLES,
+    DATA_FORMAT,
+    DOWNLOAD_FILE_TEMPLATE,
+    DOWNLOAD_FORMAT,
+    DOWNLOAD_MONTHS,
+    DOWNLOAD_TIMES,
+    END_YEAR,
+    ERA5_DATA_DIR,
+    MAX_DOWNLOAD_ATTEMPTS,
+    MINIMUM_EXISTING_FILE_SIZE_BYTES,
+    RETRY_WAIT_SECONDS,
+    START_YEAR,
+)
 
 
-# --------------------------------------------------
-# DOWNLOAD
-# --------------------------------------------------
-
-client = cdsapi.Client()
-
-for year in range(START_YEAR, END_YEAR + 1):
-    for month in range(1, 13):
-
-        filename = OUTPUT_DIR / (
-            f"era5_land_berlin_{year}_{month:02d}.nc"
+def create_cds_client():
+    """Create an authenticated Climate Data Store client."""
+    if not CDS_API_KEY or CDS_API_KEY == "PASTE_YOUR_CDS_API_KEY_HERE":
+        raise ValueError(
+            "Add your CDS API key to cds_credentials.py before downloading."
         )
 
-        if filename.exists() and filename.stat().st_size > 0:
-            print(f"Already exists: {filename}")
-            continue
+    return cdsapi.Client(url=CDS_API_URL, key=CDS_API_KEY)
 
-        number_of_days = calendar.monthrange(year, month)[1]
-        days = [
-            f"{day:02d}"
-            for day in range(1, number_of_days + 1)
-        ]
 
-        request = {
-            "variable": VARIABLES,
-            "year": str(year),
-            "month": f"{month:02d}",
-            "day": days,
-            "time": TIMES,
-            "area": AREA,
-            "data_format": "netcdf",
-            "download_format": "unarchived",
-        }
+def build_request(year, month):
+    """Build the CDS request for one calendar month."""
+    number_of_days = calendar.monthrange(year, month)[1]
+    days = [f"{day:02d}" for day in range(1, number_of_days + 1)]
 
-        print(f"\nDownloading {year}-{month:02d}...")
+    return {
+        "variable": CDS_VARIABLES,
+        "year": str(year),
+        "month": f"{month:02d}",
+        "day": days,
+        "time": DOWNLOAD_TIMES,
+        "area": AREA,
+        "data_format": DATA_FORMAT,
+        "download_format": DOWNLOAD_FORMAT,
+    }
 
-        for attempt in range(1, 4):
-            try:
-                client.retrieve(
-                    DATASET,
-                    request,
-                    str(filename),
-                )
 
-                print(f"Saved: {filename}")
-                break
+def download_era5_land():
+    """Download raw monthly NetCDF files without processing them."""
+    ERA5_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    client = create_cds_client()
 
-            except Exception as error:
-                print(
-                    f"Attempt {attempt}/3 failed for "
-                    f"{year}-{month:02d}: {error}"
-                )
+    for year in range(START_YEAR, END_YEAR + 1):
+        for month in DOWNLOAD_MONTHS:
+            filename = ERA5_DATA_DIR / DOWNLOAD_FILE_TEMPLATE.format(
+                year=year,
+                month=month,
+            )
 
-                if attempt == 3:
+            if (
+                filename.exists()
+                and filename.stat().st_size >= MINIMUM_EXISTING_FILE_SIZE_BYTES
+            ):
+                print(f"Already exists: {filename}")
+                continue
+
+            request = build_request(year, month)
+            print(f"\nDownloading {year}-{month:02d}...")
+
+            for attempt in range(1, MAX_DOWNLOAD_ATTEMPTS + 1):
+                try:
+                    client.retrieve(CDS_DATASET, request, str(filename))
+                    print(f"Saved raw file: {filename}")
+                    break
+                except Exception as error:
                     print(
-                        f"Skipping {year}-{month:02d}. "
-                        "Run the script again later."
+                        f"Attempt {attempt}/{MAX_DOWNLOAD_ATTEMPTS} failed "
+                        f"for {year}-{month:02d}: {error}"
                     )
-                else:
-                    time.sleep(30)
+
+                    if attempt == MAX_DOWNLOAD_ATTEMPTS:
+                        print(
+                            f"Skipping {year}-{month:02d}. "
+                            "Run the script again later."
+                        )
+                    else:
+                        time.sleep(RETRY_WAIT_SECONDS)
+
+
+if __name__ == "__main__":
+    download_era5_land()

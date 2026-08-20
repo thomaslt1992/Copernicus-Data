@@ -5,10 +5,6 @@ import pandas as pd
 import xarray as xr
 
 
-# ==================================================
-# SETTINGS
-# ==================================================
-
 TIMEZONE = "Europe/Berlin"
 MINIMUM_COVERAGE = 0.75
 WET_HOUR_THRESHOLD_MM = 0.1
